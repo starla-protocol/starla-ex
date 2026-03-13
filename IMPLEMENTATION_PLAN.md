@@ -9,16 +9,17 @@ Built:
 - claimant scope docs
 - initial `domain`, `store`, and `http` claimant split
 - seeded in-memory state for definitions, instances, and sessions
+- seeded in-memory executions
+- initial `runtime` module for deterministic synthetic progression
 - root route
 - definition, instance, and session inspection and mutation routes
+- execution listing, inspection, context inspection, and cancel routes
+- `submit work`
 - claimant-aligned route tests for the current slice
 
 Not built:
 
-- execution routes
-- `submit work`
 - `delegate execution`
-- context and execution snapshots
 - black-box claim automation
 
 ## Target

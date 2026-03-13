@@ -2,6 +2,7 @@ defmodule StarlaEx.HTTP.Router do
   use Plug.Router
 
   alias StarlaEx.HTTP.Response
+  alias StarlaEx.Runtime
   alias StarlaEx.Store
 
   plug(:match)
@@ -70,6 +71,33 @@ defmodule StarlaEx.HTTP.Router do
 
   post "/v1/sessions/:session_id/close" do
     respond(conn, Store.close_session(session_id))
+  end
+
+  get "/v1/executions" do
+    Response.json(conn, 200, Store.list_executions())
+  end
+
+  get "/v1/executions/:execution_id" do
+    respond(conn, Store.get_execution(execution_id))
+  end
+
+  get "/v1/executions/:execution_id/context" do
+    respond(conn, Store.get_execution_context(execution_id))
+  end
+
+  post "/v1/executions/:execution_id/cancel" do
+    respond(conn, Store.cancel_execution(execution_id))
+  end
+
+  post "/v1/agent-instances/:agent_instance_id/submit-work" do
+    case Store.submit_work(agent_instance_id, conn.body_params) do
+      {:ok, payload} ->
+        Runtime.spawn_execution_progress(payload.execution_id)
+        Response.json(conn, 201, payload)
+
+      {:error, error} ->
+        Response.error(conn, error)
+    end
   end
 
   match _ do

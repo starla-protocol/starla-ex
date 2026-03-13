@@ -4,17 +4,21 @@ defmodule StarlaEx.Store do
   alias StarlaEx.Domain.Agents
   alias StarlaEx.Domain.Agents.AgentDefinition
   alias StarlaEx.Domain.Agents.AgentInstance
+  alias StarlaEx.Domain.Executions
+  alias StarlaEx.Domain.Executions.Execution
   alias StarlaEx.Domain.Sessions
   alias StarlaEx.Domain.Sessions.Session
 
   defmodule State do
-    @enforce_keys [:agent_definitions, :agent_instances, :sessions]
-    defstruct [:agent_definitions, :agent_instances, :sessions]
+    @enforce_keys [:agent_definitions, :agent_instances, :sessions, :executions, :next_execution]
+    defstruct [:agent_definitions, :agent_instances, :sessions, :executions, :next_execution]
 
     @type t :: %__MODULE__{
             agent_definitions: %{String.t() => AgentDefinition.t()},
             agent_instances: %{String.t() => AgentInstance.t()},
-            sessions: %{String.t() => Session.t()}
+            sessions: %{String.t() => Session.t()},
+            executions: %{String.t() => Execution.t()},
+            next_execution: pos_integer()
           }
 
     @spec seeded() :: t()
@@ -39,7 +43,81 @@ defmodule StarlaEx.Store do
             Sessions.new_session("session-open", :open, %{"scope" => "session-open"}),
           "session-closed" =>
             Sessions.new_session("session-closed", :closed, %{"scope" => "session-closed"})
-        }
+        },
+        executions: seeded_executions(),
+        next_execution: 1
+      }
+    end
+
+    defp seeded_executions do
+      %{
+        "execution-failed" =>
+          Executions.new_execution(
+            "execution-failed",
+            "agent-inst-primary",
+            :failed,
+            nil,
+            nil,
+            %{"synthetic_outcome" => "failed"},
+            [],
+            nil,
+            nil,
+            :fail,
+            [
+              Executions.event("execution.created", nil),
+              Executions.event("execution.state_changed", :running),
+              Executions.event("execution.failed", :failed)
+            ]
+          ),
+        "execution-completed" =>
+          Executions.new_execution(
+            "execution-completed",
+            "agent-inst-helper",
+            :completed,
+            "session-open",
+            nil,
+            %{"seed" => "completed"},
+            [],
+            %{"scope" => "session-open"},
+            nil,
+            :complete,
+            [
+              Executions.event("execution.created", nil),
+              Executions.event("execution.state_changed", :running),
+              Executions.event("execution.completed", :completed)
+            ]
+          ),
+        "execution-running" =>
+          Executions.new_execution(
+            "execution-running",
+            "agent-inst-primary",
+            :running,
+            "session-open",
+            nil,
+            %{"seed" => "running"},
+            [],
+            %{"scope" => "session-open"},
+            nil,
+            :complete,
+            [
+              Executions.event("execution.created", nil),
+              Executions.event("execution.state_changed", :running)
+            ]
+          ),
+        "execution-pending" =>
+          Executions.new_execution(
+            "execution-pending",
+            "agent-inst-helper",
+            :pending,
+            "session-open",
+            nil,
+            %{"seed" => "pending"},
+            [],
+            %{"scope" => "session-open"},
+            nil,
+            :complete,
+            [Executions.event("execution.created", nil)]
+          )
       }
     end
   end
@@ -119,6 +197,42 @@ defmodule StarlaEx.Store do
   @spec close_session(String.t()) :: {:ok, Session.t()} | {:error, :not_found | :invalid_state}
   def close_session(session_id) do
     GenServer.call(__MODULE__, {:close_session, session_id})
+  end
+
+  @spec list_executions() :: [map()]
+  def list_executions do
+    GenServer.call(__MODULE__, :list_executions)
+  end
+
+  @spec get_execution(String.t()) :: {:ok, map()} | {:error, :not_found}
+  def get_execution(execution_id) do
+    GenServer.call(__MODULE__, {:get_execution, execution_id})
+  end
+
+  @spec get_execution_context(String.t()) ::
+          {:ok, Executions.ContextSnapshot.t()} | {:error, :not_found}
+  def get_execution_context(execution_id) do
+    GenServer.call(__MODULE__, {:get_execution_context, execution_id})
+  end
+
+  @spec submit_work(String.t(), map()) :: {:ok, map()} | {:error, :not_found | :invalid_state}
+  def submit_work(agent_instance_id, request) do
+    GenServer.call(__MODULE__, {:submit_work, agent_instance_id, request})
+  end
+
+  @spec mark_execution_running(String.t()) :: :ok | {:error, :not_found | :invalid_state}
+  def mark_execution_running(execution_id) do
+    GenServer.call(__MODULE__, {:mark_execution_running, execution_id})
+  end
+
+  @spec finish_execution(String.t()) :: :ok | {:error, :not_found | :invalid_state}
+  def finish_execution(execution_id) do
+    GenServer.call(__MODULE__, {:finish_execution, execution_id})
+  end
+
+  @spec cancel_execution(String.t()) :: {:ok, map()} | {:error, :not_found | :invalid_state}
+  def cancel_execution(execution_id) do
+    GenServer.call(__MODULE__, {:cancel_execution, execution_id})
   end
 
   @impl true
@@ -206,6 +320,94 @@ defmodule StarlaEx.Store do
     {:reply, reply, next_state}
   end
 
+  def handle_call(:list_executions, _from, state) do
+    executions =
+      state.executions
+      |> Map.values()
+      |> Enum.map(&Executions.list_item/1)
+      |> sort_by_id(& &1.execution_id)
+
+    {:reply, executions, state}
+  end
+
+  def handle_call({:get_execution, execution_id}, _from, state) do
+    case Map.fetch(state.executions, execution_id) do
+      {:ok, execution} -> {:reply, {:ok, Executions.snapshot(execution)}, state}
+      :error -> {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  def handle_call({:get_execution_context, execution_id}, _from, state) do
+    case Map.fetch(state.executions, execution_id) do
+      {:ok, execution} -> {:reply, {:ok, Executions.context_snapshot(execution)}, state}
+      :error -> {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  def handle_call({:submit_work, agent_instance_id, request}, _from, state) do
+    case Map.fetch(state.agent_instances, agent_instance_id) do
+      {:ok, %{state: :ready}} ->
+        with {:ok, session_id, session_material} <- resolve_session(state, request) do
+          execution_id = "exec-#{state.next_execution}"
+
+          execution =
+            Executions.new_execution(
+              execution_id,
+              agent_instance_id,
+              :pending,
+              session_id,
+              nil,
+              Map.fetch!(request, "input"),
+              Map.get(request, "references", []),
+              session_material,
+              nil,
+              Executions.synthetic_outcome(Map.fetch!(request, "input")),
+              [Executions.event("execution.created", nil)]
+            )
+
+          next_state = %{
+            state
+            | executions: Map.put(state.executions, execution_id, execution),
+              next_execution: state.next_execution + 1
+          }
+
+          {:reply, {:ok, Executions.submit_work_view(execution)}, next_state}
+        else
+          {:error, reason} -> {:reply, {:error, reason}, state}
+        end
+
+      {:ok, _instance} ->
+        {:reply, {:error, :invalid_state}, state}
+
+      :error ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  def handle_call({:mark_execution_running, execution_id}, _from, state) do
+    {reply, next_state} =
+      update_entity(state, :executions, execution_id, &Executions.mark_running/1)
+
+    {:reply, coerce_runtime_reply(reply), next_state}
+  end
+
+  def handle_call({:finish_execution, execution_id}, _from, state) do
+    {reply, next_state} = update_entity(state, :executions, execution_id, &Executions.finish/1)
+    {:reply, coerce_runtime_reply(reply), next_state}
+  end
+
+  def handle_call({:cancel_execution, execution_id}, _from, state) do
+    {reply, next_state} = update_entity(state, :executions, execution_id, &Executions.cancel/1)
+
+    reply =
+      case reply do
+        {:ok, execution} -> {:ok, Executions.list_item(execution)}
+        {:error, reason} -> {:error, reason}
+      end
+
+    {:reply, reply, next_state}
+  end
+
   defp fetch(collection, id) do
     case Map.fetch(collection, id) do
       {:ok, value} -> {:ok, value}
@@ -230,6 +432,28 @@ defmodule StarlaEx.Store do
         {{:error, :not_found}, state}
     end
   end
+
+  defp resolve_session(state, request) do
+    case Map.get(request, "session_id") do
+      nil ->
+        {:ok, nil, nil}
+
+      session_id ->
+        case Map.fetch(state.sessions, session_id) do
+          {:ok, %{state: :open, session_material: session_material}} ->
+            {:ok, session_id, session_material}
+
+          {:ok, _session} ->
+            {:error, :invalid_state}
+
+          :error ->
+            {:error, :not_found}
+        end
+    end
+  end
+
+  defp coerce_runtime_reply({:ok, _execution}), do: :ok
+  defp coerce_runtime_reply({:error, reason}), do: {:error, reason}
 
   defp sort_by_id(items, fun) do
     Enum.sort_by(items, fun)

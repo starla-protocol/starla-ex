@@ -92,6 +92,104 @@ defmodule StarlaEx.HTTP.RouterTest do
     assert decode_body(conn)["state"] == "closed"
   end
 
+  test "execution routes cover listing inspection and cancel" do
+    conn = send_request(:get, "/v1/executions")
+
+    assert conn.status == 200
+
+    assert Enum.any?(decode_body(conn), fn item ->
+             item["execution_id"] == "execution-pending"
+           end)
+
+    conn = send_request(:get, "/v1/executions/execution-failed")
+    assert conn.status == 200
+    assert decode_body(conn)["state"] == "failed"
+
+    conn = send_request(:get, "/v1/executions/execution-pending/context")
+    assert conn.status == 200
+    assert decode_body(conn)["session_material"]["scope"] == "session-open"
+
+    conn = send_request(:post, "/v1/executions/execution-pending/cancel")
+    assert conn.status == 200
+    assert decode_body(conn)["state"] == "canceled"
+  end
+
+  test "submit work creates pending execution and visible context" do
+    conn =
+      send_request(:post, "/v1/agent-instances/agent-inst-primary/submit-work", %{
+        "input" => %{"task" => "demo"},
+        "session_id" => "session-open",
+        "references" => [%{"kind" => "note", "id" => "ref-1"}]
+      })
+
+    assert conn.status == 201
+    body = decode_body(conn)
+    assert body["state"] == "pending"
+    assert body["session_id"] == "session-open"
+
+    execution_id = body["execution_id"]
+
+    conn = send_request(:get, "/v1/executions/#{execution_id}/context")
+    assert conn.status == 200
+
+    context = decode_body(conn)
+    assert context["agent_instance_id"] == "agent-inst-primary"
+    assert context["session_id"] == "session-open"
+    assert context["session_material"]["scope"] == "session-open"
+    assert context["explicit_input"]["task"] == "demo"
+    assert Enum.at(context["explicit_references"], 0)["id"] == "ref-1"
+  end
+
+  test "submit work rejected when instance paused" do
+    conn =
+      send_request(:post, "/v1/agent-instances/agent-inst-paused/submit-work", %{
+        "input" => %{"task" => "blocked"}
+      })
+
+    assert conn.status == 409
+    assert decode_body(conn) == %{"error" => %{"code" => "invalid_state"}}
+  end
+
+  test "execution lifecycle reaches terminal completion in order" do
+    conn =
+      send_request(:post, "/v1/agent-instances/agent-inst-primary/submit-work", %{
+        "input" => %{"task" => "completes"}
+      })
+
+    assert conn.status == 201
+    execution_id = decode_body(conn)["execution_id"]
+
+    eventually(fn ->
+      response = send_request(:get, "/v1/executions/#{execution_id}")
+      body = decode_body(response)
+
+      response.status == 200 and body["state"] == "completed" and
+        Enum.map(body["recent_events"], & &1["event"]) == [
+          "execution.created",
+          "execution.state_changed",
+          "execution.completed"
+        ]
+    end)
+  end
+
+  test "execution failure remains normal inspection" do
+    conn =
+      send_request(:post, "/v1/agent-instances/agent-inst-primary/submit-work", %{
+        "input" => %{"synthetic_outcome" => "failed"}
+      })
+
+    assert conn.status == 201
+    execution_id = decode_body(conn)["execution_id"]
+
+    eventually(fn ->
+      response = send_request(:get, "/v1/executions/#{execution_id}")
+      body = decode_body(response)
+
+      response.status == 200 and body["state"] == "failed" and
+        List.last(body["recent_events"])["event"] == "execution.failed"
+    end)
+  end
+
   defp send_request(method, path, body \\ nil) do
     conn =
       conn(method, path, body && Jason.encode!(body))
@@ -108,5 +206,20 @@ defmodule StarlaEx.HTTP.RouterTest do
 
   defp decode_body(conn) do
     Jason.decode!(conn.resp_body)
+  end
+
+  defp eventually(fun, attempts \\ 20)
+
+  defp eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(15)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0) do
+    flunk("condition did not become true")
   end
 end
