@@ -8,16 +8,34 @@ defmodule StarlaEx.Store do
   alias StarlaEx.Domain.Executions.Execution
   alias StarlaEx.Domain.Sessions
   alias StarlaEx.Domain.Sessions.Session
+  alias StarlaEx.Domain.Tools
+  alias StarlaEx.Domain.Tools.ToolDefinition
 
   defmodule State do
-    @enforce_keys [:agent_definitions, :agent_instances, :sessions, :executions, :next_execution]
-    defstruct [:agent_definitions, :agent_instances, :sessions, :executions, :next_execution]
+    @enforce_keys [
+      :agent_definitions,
+      :agent_instances,
+      :sessions,
+      :executions,
+      :tool_definitions,
+      :next_execution
+    ]
+
+    defstruct [
+      :agent_definitions,
+      :agent_instances,
+      :sessions,
+      :executions,
+      :tool_definitions,
+      :next_execution
+    ]
 
     @type t :: %__MODULE__{
             agent_definitions: %{String.t() => AgentDefinition.t()},
             agent_instances: %{String.t() => AgentInstance.t()},
             sessions: %{String.t() => Session.t()},
             executions: %{String.t() => Execution.t()},
+            tool_definitions: %{String.t() => ToolDefinition.t()},
             next_execution: pos_integer()
           }
 
@@ -45,6 +63,14 @@ defmodule StarlaEx.Store do
             Sessions.new_session("session-closed", :closed, %{"scope" => "session-closed"})
         },
         executions: seeded_executions(),
+        tool_definitions: %{
+          "tool-echo" => Tools.new_tool("tool-echo", :enabled, :completed),
+          "tool-disabled" => Tools.new_tool("tool-disabled", :disabled, :completed),
+          "tool-deleted" => Tools.new_tool("tool-deleted", :deleted, :completed),
+          "tool-capability-denied" =>
+            Tools.new_tool("tool-capability-denied", :enabled, :completed),
+          "tool-fail" => Tools.new_tool("tool-fail", :enabled, :failed)
+        },
         next_execution: 1
       }
     end
@@ -204,6 +230,16 @@ defmodule StarlaEx.Store do
     GenServer.call(__MODULE__, :list_executions)
   end
 
+  @spec list_tools() :: [map()]
+  def list_tools do
+    GenServer.call(__MODULE__, :list_tools)
+  end
+
+  @spec get_tool(String.t()) :: {:ok, map()} | {:error, :not_found}
+  def get_tool(tool_id) do
+    GenServer.call(__MODULE__, {:get_tool, tool_id})
+  end
+
   @spec get_execution(String.t()) :: {:ok, map()} | {:error, :not_found}
   def get_execution(execution_id) do
     GenServer.call(__MODULE__, {:get_execution, execution_id})
@@ -239,6 +275,12 @@ defmodule StarlaEx.Store do
           {:ok, map()} | {:error, :not_found | :invalid_state}
   def delegate_execution(parent_execution_id, request) do
     GenServer.call(__MODULE__, {:delegate_execution, parent_execution_id, request})
+  end
+
+  @spec invoke_tool(String.t(), String.t(), map()) ::
+          {:ok, map()} | {:error, :not_found | :invalid_state | :capability_denied}
+  def invoke_tool(execution_id, tool_id, request) do
+    GenServer.call(__MODULE__, {:invoke_tool, execution_id, tool_id, request})
   end
 
   @impl true
@@ -334,6 +376,23 @@ defmodule StarlaEx.Store do
       |> sort_by_id(& &1.execution_id)
 
     {:reply, executions, state}
+  end
+
+  def handle_call(:list_tools, _from, state) do
+    tools =
+      state.tool_definitions
+      |> Map.values()
+      |> Enum.map(&Tools.list_item/1)
+      |> sort_by_id(& &1.tool_id)
+
+    {:reply, tools, state}
+  end
+
+  def handle_call({:get_tool, tool_id}, _from, state) do
+    case Map.fetch(state.tool_definitions, tool_id) do
+      {:ok, tool} -> {:reply, {:ok, Tools.list_item(tool)}, state}
+      :error -> {:reply, {:error, :not_found}, state}
+    end
   end
 
   def handle_call({:get_execution, execution_id}, _from, state) do
@@ -455,6 +514,41 @@ defmodule StarlaEx.Store do
     end
   end
 
+  def handle_call({:invoke_tool, execution_id, tool_id, request}, _from, state) do
+    with {:ok, tool} <- fetch(state.tool_definitions, tool_id),
+         :ok <- ensure_tool_enabled(tool),
+         :ok <- ensure_tool_capability(tool),
+         {:ok, execution} <- fetch(state.executions, execution_id),
+         :ok <- ensure_non_terminal_execution(execution) do
+      tool_result = Tools.invoke_result(tool, Map.fetch!(request, "input"))
+
+      updated_execution = %{
+        execution
+        | recent_events:
+            execution.recent_events ++
+              [
+                Executions.event("tool.invoked", nil),
+                Executions.event("tool.#{tool_result.outcome}", nil)
+              ]
+      }
+
+      next_state = %{
+        state
+        | executions: Map.put(state.executions, execution.execution_id, updated_execution)
+      }
+
+      payload = %{
+        execution_id: updated_execution.execution_id,
+        state: updated_execution.state,
+        tool_result: tool_result
+      }
+
+      {:reply, {:ok, payload}, next_state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
   defp fetch(collection, id) do
     case Map.fetch(collection, id) do
       {:ok, value} -> {:ok, value}
@@ -519,6 +613,21 @@ defmodule StarlaEx.Store do
       :ok
     end
   end
+
+  defp ensure_non_terminal_execution(%{state: state})
+       when state in [:completed, :failed, :canceled] do
+    {:error, :invalid_state}
+  end
+
+  defp ensure_non_terminal_execution(_execution), do: :ok
+
+  defp ensure_tool_enabled(%{state: :enabled}), do: :ok
+  defp ensure_tool_enabled(_tool), do: {:error, :invalid_state}
+
+  defp ensure_tool_capability(%{tool_id: "tool-capability-denied"}),
+    do: {:error, :capability_denied}
+
+  defp ensure_tool_capability(_tool), do: :ok
 
   defp sort_by_id(items, fun) do
     Enum.sort_by(items, fun)

@@ -7,7 +7,7 @@ First Elixir claimant scope:
 - claimed binding versions:
   - `HTTP Binding v1`
 - claimed compliance profiles:
-  - `Core`
+  - `Core + Tools`
 
 Allowed:
 
@@ -19,8 +19,13 @@ Excluded:
 
 - `Stream Binding v1`
 - `Core + Approvals`
-- `Core + Tools`
 - `Core + Channels`
+- approval-gated tool invocation
+- visible terminal approval denial during tool invocation
+- idempotent `invoke tool`
+- emitted artifact behavior at the tool boundary
+- artifact inspection on the public binding
+- visible tool-derived contribution at the context boundary
 - durability across restart
 - provider integration
 - workflow and automation behavior
@@ -28,4 +33,4 @@ Excluded:
 
 Success condition:
 
-- pass the seeded `Core` report without activating excluded optional surfaces
+- pass the seeded `Core + Tools` report without activating excluded optional surfaces

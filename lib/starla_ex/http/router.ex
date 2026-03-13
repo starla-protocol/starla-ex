@@ -21,7 +21,7 @@ defmodule StarlaEx.HTTP.Router do
       state: "early_implementation",
       target_protocol_version: "v1",
       target_binding: "HTTP Binding v1",
-      target_profile: "Core"
+      target_profile: "Core + Tools"
     })
   end
 
@@ -77,6 +77,14 @@ defmodule StarlaEx.HTTP.Router do
     Response.json(conn, 200, Store.list_executions())
   end
 
+  get "/v1/tools" do
+    Response.json(conn, 200, Store.list_tools())
+  end
+
+  get "/v1/tools/:tool_id" do
+    respond(conn, Store.get_tool(tool_id))
+  end
+
   get "/v1/executions/:execution_id" do
     respond(conn, Store.get_execution(execution_id))
   end
@@ -98,6 +106,10 @@ defmodule StarlaEx.HTTP.Router do
       {:error, error} ->
         Response.error(conn, error)
     end
+  end
+
+  post "/v1/executions/:execution_id/tools/:tool_id/invoke" do
+    respond(conn, Store.invoke_tool(execution_id, tool_id, conn.body_params))
   end
 
   post "/v1/agent-instances/:agent_instance_id/submit-work" do
