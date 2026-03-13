@@ -22,7 +22,7 @@ defmodule StarlaEx.HTTP.RouterTest do
              "state" => "early_implementation",
              "target_protocol_version" => "v1",
              "target_binding" => "HTTP Binding v1",
-             "target_profile" => "Core"
+             "target_profile" => "Core + Tools"
            }
   end
 
@@ -190,6 +190,80 @@ defmodule StarlaEx.HTTP.RouterTest do
       response.status == 200 and body["state"] == "failed" and
         List.last(body["recent_events"])["event"] == "execution.failed"
     end)
+  end
+
+  test "tool definition routes cover listing and inspection" do
+    conn = send_request(:get, "/v1/tools")
+    assert conn.status == 200
+
+    assert Enum.any?(decode_body(conn), fn item ->
+             item["tool_id"] == "tool-echo"
+           end)
+
+    conn = send_request(:get, "/v1/tools/tool-echo")
+    assert conn.status == 200
+    assert decode_body(conn)["state"] == "enabled"
+  end
+
+  test "missing tool definition inspection returns not found" do
+    conn = send_request(:get, "/v1/tools/missing-tool")
+    assert conn.status == 404
+    assert decode_body(conn) == %{"error" => %{"code" => "not_found"}}
+  end
+
+  test "invoke tool success updates execution events without exposing tool context" do
+    conn =
+      send_request(:post, "/v1/executions/execution-running/tools/tool-echo/invoke", %{
+        "input" => %{"message" => "tool hello"}
+      })
+
+    assert conn.status == 200
+    body = decode_body(conn)
+    assert body["execution_id"] == "execution-running"
+    assert body["tool_result"]["tool_id"] == "tool-echo"
+    assert body["tool_result"]["outcome"] == "completed"
+    assert body["tool_result"]["result"]["echo"]["message"] == "tool hello"
+
+    conn = send_request(:get, "/v1/executions/execution-running")
+    assert conn.status == 200
+    body = decode_body(conn)
+    refute Map.has_key?(body["context"], "tool_derived_material")
+    assert Enum.at(body["recent_events"], 2)["event"] == "tool.invoked"
+    assert Enum.at(body["recent_events"], 3)["event"] == "tool.completed"
+  end
+
+  test "invoke tool rejected when tool disabled" do
+    conn =
+      send_request(:post, "/v1/executions/execution-running/tools/tool-disabled/invoke", %{
+        "input" => %{"message" => "tool hello"}
+      })
+
+    assert conn.status == 409
+    assert decode_body(conn) == %{"error" => %{"code" => "invalid_state"}}
+  end
+
+  test "invoke tool rejected when tool deleted" do
+    conn =
+      send_request(:post, "/v1/executions/execution-running/tools/tool-deleted/invoke", %{
+        "input" => %{"message" => "tool hello"}
+      })
+
+    assert conn.status == 409
+    assert decode_body(conn) == %{"error" => %{"code" => "invalid_state"}}
+  end
+
+  test "invoke tool denied by capability" do
+    conn =
+      send_request(
+        :post,
+        "/v1/executions/execution-running/tools/tool-capability-denied/invoke",
+        %{
+          "input" => %{"message" => "tool hello"}
+        }
+      )
+
+    assert conn.status == 403
+    assert decode_body(conn) == %{"error" => %{"code" => "capability_denied"}}
   end
 
   test "delegate execution success preserves parent target and session" do

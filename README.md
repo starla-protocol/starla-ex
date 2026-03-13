@@ -6,7 +6,7 @@ Elixir reference claimant for `starla-protocol`.
 
 - state: early implementation
 - target claim:
-  - `Core`
+  - `Core + Tools`
   - `HTTP Binding v1`
 - protocol repo:
   - `https://github.com/starla-protocol/starla-protocol`
@@ -15,7 +15,7 @@ Elixir reference claimant for `starla-protocol`.
 
 This repo targets the first Elixir claimant for:
 
-- `conformance/v1/claims/core-http-claim-seed.md`
+- `conformance/v1/claims/core-tools-http-claim-seed.md`
 
 Included:
 
@@ -23,15 +23,20 @@ Included:
 - single local HTTP daemon
 - in-memory state
 - deterministic synthetic execution behavior
-- only the public surface needed for the seeded `Core` claim
-- first `Core` HTTP slice in progress
+- only the public surface needed for the seeded `Core + Tools` claim
+- first `Core + Tools` HTTP slice in progress
 
 Excluded:
 
 - `Stream Binding v1`
 - `Core + Approvals`
-- `Core + Tools`
 - `Core + Channels`
+- approval-gated tool invocation
+- visible terminal approval denial during tool invocation
+- idempotent `invoke tool`
+- emitted artifact behavior at the tool boundary
+- artifact inspection on the public binding
+- visible tool-derived contribution at the context boundary
 - durability across restart
 - distribution across nodes
 - provider integration
@@ -42,8 +47,8 @@ Excluded:
 
 Implement enough public HTTP behavior to satisfy:
 
-- `conformance/v1/claims/core-http-claim-seed.md`
-- `conformance/v1/reports/core-http-report-seed.md`
+- `conformance/v1/claims/core-tools-http-claim-seed.md`
+- `conformance/v1/reports/core-tools-http-report-seed.md`
 
 Implementation sequence:
 
@@ -55,8 +60,8 @@ Implementation sequence:
 
 Claim automation:
 
-- `scripts/run-core-http-claim.sh`
-- `.github/workflows/core-http-claim.yml`
+- `scripts/run-core-tools-http-claim.sh`
+- `.github/workflows/core-tools-http-claim.yml`
 
 ## Development
 
@@ -64,5 +69,5 @@ Run:
 
 ```bash
 mix test
-./scripts/run-core-http-claim.sh
+./scripts/run-core-tools-http-claim.sh
 ```
