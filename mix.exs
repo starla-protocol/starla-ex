@@ -22,6 +22,10 @@ defmodule StarlaEx.MixProject do
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
-    []
+    [
+      {:bandit, "~> 1.5"},
+      {:plug, "~> 1.18"},
+      {:jason, "~> 1.4"}
+    ]
   end
 end
