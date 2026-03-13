@@ -53,10 +53,16 @@ Implementation sequence:
 - `CLAIM_STATUS.md`
 - `RECOVERY.md`
 
+Claim automation:
+
+- `scripts/run-core-http-claim.sh`
+- `.github/workflows/core-http-claim.yml`
+
 ## Development
 
 Run:
 
 ```bash
 mix test
+./scripts/run-core-http-claim.sh
 ```

@@ -17,11 +17,11 @@ Built:
 - `submit work`
 - `delegate execution`
 - claimant-aligned route tests for the current slice
-- manual external claim run against the protocol runner
+- external claim automation script
 
 Not built:
 
-- black-box claim automation
+- merged claimant branch
 
 ## Target
 

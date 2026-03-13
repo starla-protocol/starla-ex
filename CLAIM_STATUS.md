@@ -10,10 +10,11 @@
 
 ## Current Decision
 
-- local status: provisional pass
+- local status: dated external pass recorded
 - basis:
   - route-level claimant tests in `test/starla_ex/http/router_test.exs`
-  - manual external run through `starla-protocol/scripts/run-core-http-claim.py`
+  - automated external run through `scripts/run-core-http-claim.sh`
+  - recorded report at `/home/alan/projects/starla-protocol/conformance/v1/reports/starla-ex-core-http-2026-03-13.md`
 
 ## Covered Surface
 
@@ -29,6 +30,5 @@
 
 ## Remaining Work
 
-- automate the external claim path inside this repo
-- record a dated implementation report in `starla-protocol`
-- keep the claimant surface narrow until that report is recorded
+- review and merge `implement/core-http-claimant`
+- keep the claimant surface narrow until merge
