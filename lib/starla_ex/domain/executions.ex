@@ -154,39 +154,63 @@ defmodule StarlaEx.Domain.Executions do
 
   @spec list_item(Execution.t()) :: map()
   def list_item(%Execution{} = execution) do
-    %{
+    compact_optional(%{
       execution_id: execution.execution_id,
       agent_instance_id: execution.agent_instance_id,
       state: execution.state,
       parent_execution_id: execution.parent_execution_id,
       session_id: execution.session_id
-    }
+    })
   end
 
   @spec submit_work_view(Execution.t()) :: map()
   def submit_work_view(%Execution{} = execution) do
-    %{
+    compact_optional(%{
       execution_id: execution.execution_id,
       state: execution.state,
       session_id: execution.session_id
-    }
+    })
+  end
+
+  @spec delegate_view(Execution.t()) :: map()
+  def delegate_view(%Execution{} = execution) do
+    compact_optional(%{
+      execution_id: execution.execution_id,
+      parent_execution_id: execution.parent_execution_id,
+      agent_instance_id: execution.agent_instance_id,
+      state: execution.state,
+      session_id: execution.session_id
+    })
   end
 
   @spec snapshot(Execution.t()) :: map()
   def snapshot(%Execution{} = execution) do
-    %{
+    compact_optional(%{
       execution_id: execution.execution_id,
       state: execution.state,
       agent_instance_id: execution.agent_instance_id,
       parent_execution_id: execution.parent_execution_id,
       session_id: execution.session_id,
-      context: execution.context,
+      context: context_snapshot(execution),
       recent_events: execution.recent_events
-    }
+    })
   end
 
-  @spec context_snapshot(Execution.t()) :: ContextSnapshot.t()
-  def context_snapshot(%Execution{} = execution), do: execution.context
+  @spec context_snapshot(Execution.t()) :: map()
+  def context_snapshot(%Execution{} = execution) do
+    compact_optional(%{
+      execution_id: execution.context.execution_id,
+      agent_instance_id: execution.context.agent_instance_id,
+      session_id: execution.context.session_id,
+      explicit_input: execution.context.explicit_input,
+      explicit_references: execution.context.explicit_references,
+      session_material: execution.context.session_material,
+      inherited_lineage_material: execution.context.inherited_lineage_material,
+      tool_derived_material: execution.context.tool_derived_material,
+      event_derived_material: execution.context.event_derived_material,
+      implementation_supplied: execution.context.implementation_supplied
+    })
+  end
 
   @spec synthetic_outcome(map()) :: :complete | :fail
   def synthetic_outcome(%{"synthetic_outcome" => "failed"}), do: :fail
@@ -236,4 +260,9 @@ defmodule StarlaEx.Domain.Executions do
   end
 
   def cancel(%Execution{}), do: {:error, :invalid_state}
+
+  defp compact_optional(map) do
+    Enum.reject(map, fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
 end

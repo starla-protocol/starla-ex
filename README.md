@@ -50,6 +50,7 @@ Implementation sequence:
 - `SCOPE.md`
 - `IMPLEMENTATION_PLAN.md`
 - `IMPLEMENTATION_DECISIONS.md`
+- `CLAIM_STATUS.md`
 - `RECOVERY.md`
 
 ## Development

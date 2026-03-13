@@ -108,6 +108,7 @@ defmodule StarlaEx.HTTP.RouterTest do
     conn = send_request(:get, "/v1/executions/execution-pending/context")
     assert conn.status == 200
     assert decode_body(conn)["session_material"]["scope"] == "session-open"
+    refute Map.has_key?(decode_body(conn), "inherited_lineage_material")
 
     conn = send_request(:post, "/v1/executions/execution-pending/cancel")
     assert conn.status == 200
@@ -138,6 +139,7 @@ defmodule StarlaEx.HTTP.RouterTest do
     assert context["session_material"]["scope"] == "session-open"
     assert context["explicit_input"]["task"] == "demo"
     assert Enum.at(context["explicit_references"], 0)["id"] == "ref-1"
+    refute Map.has_key?(context, "implementation_supplied")
   end
 
   test "submit work rejected when instance paused" do
@@ -188,6 +190,99 @@ defmodule StarlaEx.HTTP.RouterTest do
       response.status == 200 and body["state"] == "failed" and
         List.last(body["recent_events"])["event"] == "execution.failed"
     end)
+  end
+
+  test "delegate execution success preserves parent target and session" do
+    conn =
+      send_request(:post, "/v1/executions/execution-running/delegate", %{
+        "target_agent_instance_id" => "agent-inst-helper",
+        "input" => %{"message" => "child", "synthetic_outcome" => "failed"},
+        "references" => [%{"kind" => "doc", "id" => "child-ref"}]
+      })
+
+    assert conn.status == 201
+    body = decode_body(conn)
+    assert body["parent_execution_id"] == "execution-running"
+    assert body["agent_instance_id"] == "agent-inst-helper"
+    assert body["session_id"] == "session-open"
+
+    execution_id = body["execution_id"]
+
+    conn = send_request(:get, "/v1/executions/#{execution_id}/context")
+    assert conn.status == 200
+
+    context = decode_body(conn)
+    assert context["session_material"]["scope"] == "session-open"
+    assert context["inherited_lineage_material"]["parent_execution_id"] == "execution-running"
+    assert context["explicit_references"] == [%{"id" => "child-ref", "kind" => "doc"}]
+
+    eventually(fn ->
+      response = send_request(:get, "/v1/executions/#{execution_id}")
+      body = decode_body(response)
+
+      response.status == 200 and body["state"] == "failed" and
+        Enum.map(body["recent_events"], & &1["event"]) == [
+          "execution.created",
+          "execution.delegated",
+          "execution.state_changed",
+          "execution.failed"
+        ]
+    end)
+  end
+
+  test "delegate execution rejects missing parent" do
+    conn =
+      send_request(:post, "/v1/executions/missing-parent/delegate", %{
+        "target_agent_instance_id" => "agent-inst-helper",
+        "input" => %{"message" => "child"}
+      })
+
+    assert conn.status == 404
+    assert decode_body(conn) == %{"error" => %{"code" => "not_found"}}
+  end
+
+  test "delegate execution rejects terminal parent" do
+    conn =
+      send_request(:post, "/v1/executions/execution-completed/delegate", %{
+        "target_agent_instance_id" => "agent-inst-helper",
+        "input" => %{"message" => "child"}
+      })
+
+    assert conn.status == 409
+    assert decode_body(conn) == %{"error" => %{"code" => "invalid_state"}}
+  end
+
+  test "delegate execution rejects missing target" do
+    conn =
+      send_request(:post, "/v1/executions/execution-running/delegate", %{
+        "target_agent_instance_id" => "missing-target",
+        "input" => %{"message" => "child"}
+      })
+
+    assert conn.status == 404
+    assert decode_body(conn) == %{"error" => %{"code" => "not_found"}}
+  end
+
+  test "delegate execution rejects target not ready" do
+    conn =
+      send_request(:post, "/v1/executions/execution-running/delegate", %{
+        "target_agent_instance_id" => "agent-inst-paused",
+        "input" => %{"message" => "child"}
+      })
+
+    assert conn.status == 409
+    assert decode_body(conn) == %{"error" => %{"code" => "invalid_state"}}
+  end
+
+  test "delegate execution rejects self target" do
+    conn =
+      send_request(:post, "/v1/executions/execution-running/delegate", %{
+        "target_agent_instance_id" => "agent-inst-primary",
+        "input" => %{"message" => "child"}
+      })
+
+    assert conn.status == 409
+    assert decode_body(conn) == %{"error" => %{"code" => "invalid_state"}}
   end
 
   defp send_request(method, path, body \\ nil) do

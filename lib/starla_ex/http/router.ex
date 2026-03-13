@@ -89,6 +89,17 @@ defmodule StarlaEx.HTTP.Router do
     respond(conn, Store.cancel_execution(execution_id))
   end
 
+  post "/v1/executions/:execution_id/delegate" do
+    case Store.delegate_execution(execution_id, conn.body_params) do
+      {:ok, payload} ->
+        Runtime.spawn_execution_progress(payload.execution_id)
+        Response.json(conn, 201, payload)
+
+      {:error, error} ->
+        Response.error(conn, error)
+    end
+  end
+
   post "/v1/agent-instances/:agent_instance_id/submit-work" do
     case Store.submit_work(agent_instance_id, conn.body_params) do
       {:ok, payload} ->

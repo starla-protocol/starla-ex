@@ -235,6 +235,12 @@ defmodule StarlaEx.Store do
     GenServer.call(__MODULE__, {:cancel_execution, execution_id})
   end
 
+  @spec delegate_execution(String.t(), map()) ::
+          {:ok, map()} | {:error, :not_found | :invalid_state}
+  def delegate_execution(parent_execution_id, request) do
+    GenServer.call(__MODULE__, {:delegate_execution, parent_execution_id, request})
+  end
+
   @impl true
   def init(:ok) do
     {:ok, State.seeded()}
@@ -408,6 +414,47 @@ defmodule StarlaEx.Store do
     {:reply, reply, next_state}
   end
 
+  def handle_call({:delegate_execution, parent_execution_id, request}, _from, state) do
+    with {:ok, parent} <- fetch(state.executions, parent_execution_id),
+         :ok <- ensure_non_terminal_parent(parent),
+         {:ok, target} <- fetch(state.agent_instances, request["target_agent_instance_id"]),
+         :ok <- ensure_ready_target(target),
+         :ok <- ensure_non_self_target(parent, target) do
+      execution_id = "exec-#{state.next_execution}"
+
+      execution =
+        Executions.new_execution(
+          execution_id,
+          target.agent_instance_id,
+          :pending,
+          parent.session_id,
+          parent.execution_id,
+          Map.fetch!(request, "input"),
+          Map.get(request, "references", []),
+          parent.context.session_material,
+          %{
+            "parent_execution_id" => parent.execution_id,
+            "parent_explicit_input" => parent.context.explicit_input
+          },
+          Executions.synthetic_outcome(Map.fetch!(request, "input")),
+          [
+            Executions.event("execution.created", nil),
+            Executions.event("execution.delegated", nil)
+          ]
+        )
+
+      next_state = %{
+        state
+        | executions: Map.put(state.executions, execution_id, execution),
+          next_execution: state.next_execution + 1
+      }
+
+      {:reply, {:ok, Executions.delegate_view(execution)}, next_state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
   defp fetch(collection, id) do
     case Map.fetch(collection, id) do
       {:ok, value} -> {:ok, value}
@@ -454,6 +501,24 @@ defmodule StarlaEx.Store do
 
   defp coerce_runtime_reply({:ok, _execution}), do: :ok
   defp coerce_runtime_reply({:error, reason}), do: {:error, reason}
+
+  defp ensure_non_terminal_parent(%{state: state})
+       when state in [:completed, :failed, :canceled] do
+    {:error, :invalid_state}
+  end
+
+  defp ensure_non_terminal_parent(_parent), do: :ok
+
+  defp ensure_ready_target(%{state: :ready}), do: :ok
+  defp ensure_ready_target(_target), do: {:error, :invalid_state}
+
+  defp ensure_non_self_target(parent, target) do
+    if parent.agent_instance_id == target.agent_instance_id do
+      {:error, :invalid_state}
+    else
+      :ok
+    end
+  end
 
   defp sort_by_id(items, fun) do
     Enum.sort_by(items, fun)

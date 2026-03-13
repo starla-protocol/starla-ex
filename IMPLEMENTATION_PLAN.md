@@ -15,11 +15,12 @@ Built:
 - definition, instance, and session inspection and mutation routes
 - execution listing, inspection, context inspection, and cancel routes
 - `submit work`
+- `delegate execution`
 - claimant-aligned route tests for the current slice
+- manual external claim run against the protocol runner
 
 Not built:
 
-- `delegate execution`
 - black-box claim automation
 
 ## Target
