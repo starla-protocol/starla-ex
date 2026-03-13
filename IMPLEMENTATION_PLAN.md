@@ -7,13 +7,21 @@ Built:
 - repo bootstrap
 - Mix OTP application
 - claimant scope docs
+- initial `domain`, `store`, and `http` claimant split
+- seeded in-memory state for definitions, instances, and sessions
+- seeded in-memory executions
+- initial `runtime` module for deterministic synthetic progression
+- root route
+- definition, instance, and session inspection and mutation routes
+- execution listing, inspection, context inspection, and cancel routes
+- `submit work`
+- `delegate execution`
+- claimant-aligned route tests for the current slice
+- external claim automation script
 
 Not built:
 
-- HTTP daemon
-- core resource state
-- seeded `Core` routes
-- black-box claim automation
+- merged claimant branch
 
 ## Target
 

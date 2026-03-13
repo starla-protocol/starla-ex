@@ -4,7 +4,7 @@ Elixir reference claimant for `starla-protocol`.
 
 ## Status
 
-- state: bootstrap
+- state: early implementation
 - target claim:
   - `Core`
   - `HTTP Binding v1`
@@ -24,6 +24,7 @@ Included:
 - in-memory state
 - deterministic synthetic execution behavior
 - only the public surface needed for the seeded `Core` claim
+- first `Core` HTTP slice in progress
 
 Excluded:
 
@@ -49,7 +50,13 @@ Implementation sequence:
 - `SCOPE.md`
 - `IMPLEMENTATION_PLAN.md`
 - `IMPLEMENTATION_DECISIONS.md`
+- `CLAIM_STATUS.md`
 - `RECOVERY.md`
+
+Claim automation:
+
+- `scripts/run-core-http-claim.sh`
+- `.github/workflows/core-http-claim.yml`
 
 ## Development
 
@@ -57,4 +64,5 @@ Run:
 
 ```bash
 mix test
+./scripts/run-core-http-claim.sh
 ```

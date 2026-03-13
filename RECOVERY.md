@@ -24,6 +24,7 @@ Update it only when:
 2. `AGENTS.md`
 3. `IMPLEMENTATION_DECISIONS.md`
 4. `IMPLEMENTATION_PLAN.md`
+5. `CLAIM_STATUS.md`
 
 ## Verify Current State
 
@@ -32,14 +33,14 @@ Run:
 ```bash
 git branch --show-current
 git status --short
-mix test
+./scripts/run-core-http-claim.sh
 ```
 
 Expected:
 
 - branch is `implement/core-http-claimant`
 - working tree is clean
-- tests pass
+- claim script passes
 
 ## Current Boundary
 
@@ -49,7 +50,6 @@ Expected:
 
 ## Immediate Next Step
 
-After bootstrap:
+After a green claim run:
 
-- add the initial HTTP stack and claimant module split
-- then implement the first seeded `Core` routes
+- review and merge the claimant branch
